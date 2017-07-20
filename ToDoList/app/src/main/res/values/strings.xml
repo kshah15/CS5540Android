@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">ToDoList</string>
+    <!--Add items in 'category'  menu list-->
+    <string-array name="categories_array">
+        <item>College</item>
+        <item>Work</item>
+        <item>Call</item>
+        <item>Alarm</item>
+        <item>Set Appointment</item>
+    </string-array>
+
+    <!--Add title on the app page for category menu-->
+    <string name="category_menu">Category</string>
+
+    <!--Categories from categories_array on home page-->
+    <string name="category_0">Everything</string>
+    <string name="category_1">College</string>
+    <string name="category_2">Work</string>
+    <string name="category_3">Call</string>
+    <string name="category_4">Alarm</string>
+    <string name="category_5">Set Appointment</string>
+</resources>
