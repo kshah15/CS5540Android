@@ -23,4 +23,5 @@ public class ExampleInstrumentedTest {
 
         assertEquals("com.example.kishan.newsapp2", appContext.getPackageName());
     }
+
 }

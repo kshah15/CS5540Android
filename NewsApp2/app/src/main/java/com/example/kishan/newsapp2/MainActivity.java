@@ -1,54 +1,88 @@
 package com.example.kishan.newsapp2;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.preference.PreferenceManager;
+import android.support.v4.app.LoaderManager;
+import android.support.v4.content.AsyncTaskLoader;
+import android.support.v4.content.Loader;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ProgressBar;
 
-import com.example.kishan.newsapp2.model.NewsItem;
-import com.example.kishan.newsapp2.utilities.NetworkUtils;
+import com.example.kishan.newsapp2.utilities.NewsJob;
+import com.example.kishan.newsapp2.utilities.ScheduleUtil;
 import com.example.kishan.newsapp2.utilities.NewsAdapter;
 import org.json.JSONException;
 
+
+import com.example.kishan.newsapp2.model.DataHelper;
+import com.example.kishan.newsapp2.model.DataUtils;
+import com.example.kishan.newsapp2.model.Contract;
 import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements LoaderManager.LoaderCallbacks<Void>, NewsAdapter.ItemClickListener {
     static final String TAG = "mainactivity";
 
-    private RecyclerView RecyclerView;
-    private NewsAdapter NewsAdapter;
-    private EditText SearchBoxEditText;
-    private ProgressBar LoadingIndicator;
+    private RecyclerView mRecyclerView;
+    private NewsAdapter mNewsAdapter;
+    private EditText mSearchBoxEditText;
+    private ProgressBar mLoadingIndicator;
+
+    // Done: 4. Create local field member of type SQLiteDatabase Also create Cursor object
+    private SQLiteDatabase mDb;
+    private Cursor cursor;
+
+    // Done: 2. Create constant int to identify loader
+    private static final int NEWS_LOADER = 1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        RecyclerView = (RecyclerView) findViewById(R.id.recyclerview);
+        // Done: 7. Activity laod what's currently in database into recyclerview
+        mRecyclerView = (RecyclerView) findViewById(R.id.recyclerview);
         LinearLayoutManager layoutManager = new LinearLayoutManager(this, LinearLayoutManager.VERTICAL, false);
-        RecyclerView.setLayoutManager(layoutManager);
-        RecyclerView.setHasFixedSize(true);
+        mRecyclerView.setLayoutManager(layoutManager);
+        mRecyclerView.setHasFixedSize(true);
+        mLoadingIndicator = (ProgressBar) findViewById(R.id.loading_indicator);
 
-        SearchBoxEditText = (EditText) findViewById(R.id.search);
-        LoadingIndicator = (ProgressBar) findViewById(R.id.loading_indicator);
+        // Done: 6. Check if app is installed before,  If not then load data into database.
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        boolean isFirst = prefs.getBoolean("isfirst", true);
 
-        loadNewsData();
-
+        if (isFirst) {
+            LoaderManager loaderManager = getSupportLoaderManager();
+            loaderManager.restartLoader(NEWS_LOADER, null, this).forceLoad();
+            SharedPreferences.Editor editor = prefs.edit();
+            editor.putBoolean("isfirst", false);
+            editor.commit();
+        }
+        ScheduleUtil.scheduleRefresh(this);
     }
 
-    private void loadNewsData() {
-        new NewsDataTask("").execute();
+    @Override
+    protected void onStart() {
+        super.onStart();
+        // Done: 4. Get a writable database reference, store it in mDb
+        mDb = new DataHelper(MainActivity.this).getReadableDatabase();
+        cursor = DataUtils.getAll(mDb);
+        mNewsAdapter = new NewsAdapter(cursor, this);
+        mRecyclerView.setAdapter(mNewsAdapter);
     }
 
     @Override
@@ -63,70 +97,68 @@ public class MainActivity extends AppCompatActivity {
 
         switch (itemNumber) {
             case R.id.search:
-                String s = SearchBoxEditText.getText().toString();
-                NewsDataTask task = new NewsDataTask(s);
-                task.execute();
+                LoaderManager loaderManager = getSupportLoaderManager();
+                loaderManager.restartLoader(NEWS_LOADER, null, this).forceLoad();
                 return true;
         }
 
         return super.onOptionsItemSelected(item);
     }
 
-    class NewsDataTask extends AsyncTask<URL, Void, ArrayList<NewsItem>> implements NewsAdapter.ItemClickListener {
-        String query;
-        ArrayList<NewsItem> data;
+    // Done: 2. Implement methods onCreateLoader, onLoadFinished, and onLoaderReset
+    //         to loadmanager,  LoaderManager.LoaderCallbacks<Void>
+    @Override
+    public Loader<Void> onCreateLoader(int id, Bundle args) {
 
-        NewsDataTask(String s) {
-            query = s;
-        }
+        // Done: 2. Return new AsyncTaskLoader<Void> as anonymous inner class with this.
+        return new AsyncTaskLoader<Void>(this) {
 
-        @Override
-        protected void onPreExecute() {
-            super.onPreExecute();
-            LoadingIndicator.setVisibility(View.VISIBLE);
-        }
-
-        @Override
-        protected ArrayList<NewsItem> doInBackground(URL... params) {
-            ArrayList<NewsItem> result = null;
-            URL newsRequestURL = NetworkUtils.buildUrl();
-
-            try {
-                String json = NetworkUtils.getResponseFromHttpUrl(newsRequestURL);
-                result = NetworkUtils.parseJSON(json);
-            } catch (IOException e) {
-                e.printStackTrace();
-            } catch (JSONException e) {
-                e.printStackTrace();
+            // Done: 2. Show loading_indicator on the start of loading.
+            @Override
+            protected void onStartLoading() {
+                super.onStartLoading();
+                mLoadingIndicator.setVisibility(View.VISIBLE);
             }
-            return result;
-        }
 
-        @Override
-        protected void onPostExecute(final ArrayList<NewsItem> newsData) {
-            this.data = newsData;
-            super.onPostExecute(data);
-            LoadingIndicator.setVisibility(View.INVISIBLE);
-
-            if (data != null) {
-
-                NewsAdapter adapter = new NewsAdapter(data, this);
-                RecyclerView.setAdapter(adapter);
+            @Override
+            public Void loadInBackground() {
+                // Done: 7. Refresh articles on method
+                NewsJob.refreshArticles(MainActivity.this);
+                return null;
             }
-        }
+        };
+    }
 
+    @Override
+    public void onLoadFinished(Loader<Void> loader, Void data) {
+        // Done: 2. When loading is finished.
+        mLoadingIndicator.setVisibility(View.INVISIBLE);
 
-        @Override
-        public void onListItemClick(int clickedItemIndex) {
+        // Done: 7. get info from database
+        mDb = new DataHelper(MainActivity.this).getReadableDatabase();
+        cursor = DataUtils.getAll(mDb);
 
-            openWebPage(data.get(clickedItemIndex).getUrl());
-        }
+        // Done: 7. Reset data in recyclerview.
+        mNewsAdapter = new NewsAdapter(cursor, this);
+        mRecyclerView.setAdapter(mNewsAdapter);
+        mNewsAdapter.notifyDataSetChanged();
+    }
 
-        public void openWebPage(String url) {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            if (intent.resolveActivity(getPackageManager()) != null) {
-                startActivity(intent);
-            }
+    @Override
+    public void onLoaderReset(Loader<Void> loader) {}
+
+    // Done: 4. Update onListItemClick in to the Cursor
+    @Override
+    public void onListItemClick(Cursor cursor, int clickedItemIndex) {
+        cursor.moveToPosition(clickedItemIndex);
+        String url = cursor.getString(cursor.getColumnIndex(Contract.NewsItem.COLUMN_URL));
+        Log.d(TAG, String.format("Url %s", url));
+
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+        if (intent.resolveActivity(getPackageManager()) != null) {
+            startActivity(intent);
         }
     }
+
+    // Done: 2. Removed class FetchNewsTask.
 }
